@@ -2,13 +2,14 @@
 // Use of this source code is governed by a MIT-style license that can be
 // found in the LICENSE file.
 
-import RNFetchBlob from '../index.js'
+import {NativeModules} from 'react-native';
 import XMLHttpRequestEventTarget from './XMLHttpRequestEventTarget.js'
 import Log from '../utils/log.js'
 import Blob from './Blob.js'
 import ProgressEvent from './ProgressEvent.js'
 import URIUtil from '../utils/uri'
 
+const RNFetchBlob = NativeModules.RNFetchBlob
 const log = new Log('XMLHttpRequest')
 
 log.disable()
@@ -224,8 +225,8 @@ export default class XMLHttpRequest extends XMLHttpRequestEventTarget{
       /[\(\)\>\<\@\,\:\\\/\[\]\?\=\}\{\s\ \u007f\;\t\0\v\r]/,
       /tt/
     ]
-    for(let i in invalidPatterns) {
-      if(invalidPatterns[i].test(name) || typeof name !== 'string') {
+    for(let pattern of invalidPatterns) {
+      if(pattern.test(name) || typeof name !== 'string') {
         throw `SyntaxError : Invalid header field name ${name}`
       }
     }

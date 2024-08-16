@@ -7,7 +7,6 @@ import {
   DeviceEventEmitter,
   NativeAppEventEmitter,
   Platform,
-  AsyncStorage,
   AppState,
 } from 'react-native'
 import type {
@@ -17,12 +16,12 @@ import type {
   RNFetchBlobResponseInfo
 } from './types'
 import URIUtil from './utils/uri'
-import StatefulPromise from './class/StatefulPromise.js'
+//import StatefulPromise from './class/StatefulPromise.js'
 import fs from './fs'
 import getUUID from './utils/uuid'
 import base64 from 'base-64'
 import polyfill from './polyfill'
-import _ from 'lodash'
+import reduce from 'lodash/reduce'
 import android from './android'
 import ios from './ios'
 import JSONStream from './json-stream'
@@ -72,14 +71,15 @@ emitter.addListener("RNFetchBlobMessage", (e) => {
 // Show warning if native module not detected
 if(!RNFetchBlob || !RNFetchBlob.fetchBlobForm || !RNFetchBlob.fetchBlob) {
   console.warn(
-    'react-native-fetch-blob could not find valid native module.',
+    'rn-fetch-blob could not find valid native module.',
     'please make sure you have linked native modules using `rnpm link`,',
     'and restart RN packager or manually compile IOS/Android project.'
   )
 }
 
 function wrap(path:string):string {
-  return 'RNFetchBlob-file://' + path
+  const prefix = path.startsWith('content://') ? 'RNFetchBlob-content://' : 'RNFetchBlob-file://'
+  return prefix + path
 }
 
 /**
@@ -104,7 +104,13 @@ function wrap(path:string):string {
  *                   activity takes place )
  *                   If it doesn't exist, the file is downloaded as usual
  *         @property {number} timeout
- *                   Request timeout in millionseconds, by default it's 30000ms.
+ *                   Request timeout in millionseconds, by default it's 60000ms.
+ *         @property {boolean} followRedirect
+ *                   Follow redirects automatically, default true
+ *         @property {boolean} trusty
+ *                   Trust all certificates
+ *         @property {boolean} wifiOnly
+ *                   Only do requests through WiFi. Android SDK 21 or above only.
  *
  * @return {function} This method returns a `fetch` method instance.
  */
@@ -118,7 +124,7 @@ function config (options:RNFetchBlobConfig) {
  * @param  {string} method     Should be one of `get`, `post`, `put`
  * @param  {string} url        A file URI string
  * @param  {string} headers    Arguments of file system API
- * @param  {any} body       Data to put or post to file systen.
+ * @param  {any}    body       Data to put or post to file systen.
  * @return {Promise}
  */
 function fetchFile(options = {}, method, url, headers = {}, body):Promise {
@@ -218,7 +224,7 @@ function fetch(...args:any):Promise {
 
   // # 241 normalize null or undefined headers, in case nil or null string
   // pass to native context
-  headers = _.reduce(headers, (result, value, key) => {
+  headers = reduce(headers, (result, value, key) => {
     result[key] = value || ''
     return result
   }, {});
@@ -228,8 +234,14 @@ function fetch(...args:any):Promise {
     return fetchFile(options, method, url, headers, body)
   }
 
+  let promiseResolve;
+  let promiseReject;
+
   // from remote HTTP(S)
   let promise = new Promise((resolve, reject) => {
+    promiseResolve = resolve;
+    promiseReject = reject;
+
     let nativeMethodName = Array.isArray(body) ? 'fetchBlobForm' : 'fetchBlob'
 
     // on progress event listener
@@ -370,6 +382,7 @@ function fetch(...args:any):Promise {
     subscriptionUpload.remove()
     stateEvent.remove()
     RNFetchBlob.cancelRequest(taskId, fn)
+    promiseReject(new Error("canceled"))
   }
   promise.taskId = taskId
 
@@ -520,13 +533,12 @@ class FetchBlobResponse {
     }
     /**
      * Start read stream from cached file
-     * @param  {String} encoding Encode type, should be one of `base64`, `ascrii`, `utf8`.
-     * @param  {Function} fn On data event handler
+     * @param  {String} encoding Encode type, should be one of `base64`, `ascii`, `utf8`.
      * @return {void}
      */
-    this.readStream = (encode: 'base64' | 'utf8' | 'ascii'):RNFetchBlobStream | null => {
+    this.readStream = (encoding: 'base64' | 'utf8' | 'ascii'):RNFetchBlobStream | null => {
       if(this.type === 'path') {
-        return readStream(this.data, encode)
+        return readStream(this.data, encoding)
       }
       else {
         console.warn('RNFetchblob', 'this response data does not contains any available stream')
@@ -539,10 +551,9 @@ class FetchBlobResponse {
      * @param  {String} encoding Encode type, should be one of `base64`, `ascrii`, `utf8`.
      * @return {String}
      */
-    this.readFile = (encode: 'base64' | 'utf8' | 'ascii') => {
+    this.readFile = (encoding: 'base64' | 'utf8' | 'ascii') => {
       if(this.type === 'path') {
-        encode = encode || 'utf8'
-        return readFile(this.data, encode)
+        return readFile(this.data, encoding)
       }
       else {
         console.warn('RNFetchblob', 'this response does not contains a readable file')
